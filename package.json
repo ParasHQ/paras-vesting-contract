@@ -1,14 +1,11 @@
 {
-  "name": "rust-status-message-builder",
+  "name": "paras-vesting-contract",
   "version": "1.0.0",
-  "description": "Compiles NEAR Protocol example of setting and retrieving a status message per NEAR account",
+  "description": "Paras vesting contract",
   "scripts": {
-    "build": "cargo build --target wasm32-unknown-unknown --release",
-    "postbuild": "cp target/wasm32-unknown-unknown/release/status_message.wasm ./res/"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/near-examples/rust-status-message.git"
+    "build": "cargo build --all --target wasm32-unknown-unknown --release",
+    "postbuild": "cp target/wasm32-unknown-unknown/release/paras_vesting_contract.wasm ./res/",
+    "dev": "near dev-deploy --wasmFile ./res/paras_vesting_contract.wasm"
   },
   "keywords": [
     "near-protocol",
@@ -16,11 +13,7 @@
     "rust",
     "smart-contract"
   ],
-  "author": "Mike Purvis",
+  "author": "Paras",
   "license": "(MIT AND Apache-2.0)",
-  "bugs": {
-    "url": "https://github.com/near-examples/rust-status-message/issues"
-  },
-  "homepage": "https://github.com/near-examples/rust-status-message#readme",
   "devDependencies": {}
 }

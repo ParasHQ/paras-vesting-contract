@@ -1,35 +1,225 @@
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
 use near_sdk::{env, near_bindgen};
-use near_sdk::collections::UnorderedMap;
+use near_sdk::json_types::{U128, ValidAccountId};
+use near_sdk::{AccountId, Balance, Promise, PanicOnDefault, assert_one_yocto, log};
+use near_contract_standards::upgrade::Ownable;
 
-#[global_allocator]
-static ALLOC: near_sdk::wee_alloc::WeeAlloc = near_sdk::wee_alloc::WeeAlloc::INIT;
+use crate::utils::{ext_fungible_token, ext_self, GAS_FOR_FT_TRANSFER};
+
+mod utils;
+
+//#[global_allocator]
+//static ALLOC: near_sdk::wee_alloc::WeeAlloc = near_sdk::wee_alloc::WeeAlloc::INIT; //ini buat apaan?
+near_sdk::setup_alloc!();
 
 #[near_bindgen]
-#[derive(BorshDeserialize, BorshSerialize)]
-pub struct StatusMessage {
-    records: UnorderedMap<String, String>,
+#[derive(BorshDeserialize, BorshSerialize, PanicOnDefault)]
+pub struct Contract {
+    owner: AccountId,
+    recipient: AccountId,
+    token: AccountId,
+    amount: u128,
+    amount_claimed: u128,
+    start: u64, 
+    duration: u64,
+    cliff: u64,
+    revocable: bool,
+    is_active: bool,
 }
 
-impl Default for StatusMessage {
-    fn default() -> Self {
-        Self {
-            records: UnorderedMap::new(b"r".to_vec())
+impl Ownable for Contract {
+    fn get_owner(&self) -> AccountId {
+        self.owner.clone()
+    }
+
+    fn set_owner(&mut self, owner: AccountId) {
+        self.assert_owner();
+        self.owner = owner;
+    }
+}
+
+/* 
+    Implementation of vesting contract
+
+    References:
+    https://github.com/JoinColony/colonyToken/blob/master/contracts/Vesting.sol
+    https://github.com/cpu-coin/CPUcoin/blob/master/contracts/ERC20Vestable.sol
+    https://github.com/dreamteam-gg/smart-contracts/blob/master/contracts/vesting/DreamTokensVesting.sol
+    https://modex.tech/developers/OpenZeppelinTeam/OpenZeppelin/src/master/contracts/drafts/TokenVesting.sol
+*/
+#[near_bindgen]
+impl Contract {
+    #[init]
+    pub fn new(
+        owner: ValidAccountId,
+        recipient : ValidAccountId,
+        token: ValidAccountId,
+        amount: U128,
+        start: u64,
+        duration: u64,
+        cliff: u64,
+        revocable: bool,
+    ) -> Self {
+        assert!(!env::state_exists(), "Already initialized");
+        assert!(cliff < duration, "Cliff duration is higher than vesting duration.");
+        assert!(duration > 0, "Vesting duration is less than 0");
+        assert!((start.checked_add(duration.into()).expect("Integer overflow")) > env::block_timestamp().into(), "Start and duration is not in the future");
+        let this = Self {
+            owner: owner.into(),
+            recipient: recipient.into(),
+            token: token.into(),
+            amount: amount.into(),
+            amount_claimed: 0,
+            start: start,
+            duration: duration,
+            cliff: start.checked_add(cliff.into()).expect("Integer overflow"),
+            revocable: revocable,
+            is_active: true,
+        };
+        this
+    }
+
+    pub fn recipient(&self) -> AccountId {
+        self.recipient.clone()
+    }
+
+    pub fn amount(&self) -> u128 {
+        self.amount
+    }
+
+    pub fn token(&self) -> AccountId {
+        self.token.clone()
+    }
+
+    pub fn amount_claimed(&self) -> u128 {
+        self.amount_claimed
+    }
+
+    pub fn cliff(&self) -> u64 {
+        self.cliff
+    }
+
+    pub fn start(&self) -> u64 {
+        self.start
+    }
+
+    pub fn duration(&self) -> u64 {
+        self.duration
+    }
+
+    pub fn revocable(&self) -> bool {
+        self.revocable
+    }
+
+    pub fn claim_vested(&mut self) -> Promise {
+        let releasable = self.releasable_amount();
+        assert!(releasable > 0, "No vested amounts are due");
+
+        self.amount_claimed = self.amount_claimed + releasable;
+
+        ext_fungible_token::ft_transfer(
+            self.recipient.clone(),
+            releasable.into(),
+            None,
+            &self.token,
+            1,
+            GAS_FOR_FT_TRANSFER
+        )
+    }
+
+    pub fn releasable_amount(&self) -> u128 {
+        self.calculate_amount_vested().checked_sub(self.amount_claimed()).expect("Integer underflow")
+    }
+
+    pub fn calculate_amount_vested(&self) -> u128{
+        if env::block_timestamp() < self.cliff {
+            return 0;
+        }
+
+        let elapsed_time = env::block_timestamp() - self.cliff;
+        //let elapsed_months = elapsed_time / NANO_SECONDS_PER_MONTH;
+
+        // if over vesting period, return all remaning grant
+        if elapsed_time >= self.duration {
+            let vested_amount = self.amount.checked_sub(self.amount_claimed).expect("Integer underflow");
+            return vested_amount;
+        } else {
+            let vested_amount = self.amount * (elapsed_time as u128 / self.duration as u128);
+            return vested_amount;
         }
     }
-}
 
-#[near_bindgen]
-impl StatusMessage {
-    pub fn set_status(&mut self, message: String) {
-        env::log(b"A");
-        let account_id = env::signer_account_id();
-        self.records.insert(&account_id, &message);
+    // Design Choice : 
+    // 1. Revoke + send amount not vested (all amount) to recipient
+    // 2. Revoke and sweep_grant -> ownerOnly
+    // 3. no revoke function
+
+    pub fn sweep_grant(&mut self, amount: Balance) -> Promise {
+        self.assert_owner();
+        assert!(true, "function disabled");
+        assert!(!self.is_active, "Vesting contract still active");
+        ext_fungible_token::ft_transfer(
+            self.owner.clone().into(),
+            amount.into(),
+            None,
+            &self.token,
+            1,
+            GAS_FOR_FT_TRANSFER
+        )
     }
 
-    pub fn get_status(&self, account_id: String) -> Option<String> {
-        env::log(b"A");
-        return self.records.get(&account_id);
+    /*
+    pub fn revoke(&mut self) {
+        self.assert_owner();
+        assert_one_yocto();
+        assert!(self.revocable == true, "Grant non revocable");
+        self.is_active = false;
+        self.recipient = self.owner.clone();
+        self.amount = 0;
+        self.amount_claimed = 0;
+        self.start = 0;
+        self.duration = 0;
+        self.cliff = 0;
+    }
+    */
+
+    pub fn revoke(&mut self, recipient: ValidAccountId) -> Promise {
+        self.assert_owner();
+        assert_one_yocto();
+        assert!(true, "function disabled");
+        assert!(self.revocable == true, "Grant non revocable");
+        assert!(self.is_active, "Token already revoked");
+
+        let amount_vested: u128 = self.calculate_amount_vested();
+        let amount_not_vested: u128 = self.amount.checked_sub(self.amount_claimed).expect("Integer underflow").checked_sub(amount_vested).expect("Integer underflow");
+
+        ext_fungible_token::ft_transfer(
+            recipient.into(),
+            amount_not_vested.into(),
+            None,
+            &self.token,
+            1,
+            GAS_FOR_FT_TRANSFER
+        ).then(
+        ext_self::callback_revoke(
+            &env::current_account_id(),
+            0,
+            env::prepaid_gas() - GAS_FOR_FT_TRANSFER
+        )
+        )
+    }
+
+
+    #[private]
+    pub fn callback_revoke(&mut self) {
+        // ft_transfer returns void, there is no way to make sure ft_transfer successful
+        self.is_active = false;
+        self.recipient = self.owner.clone();
+        self.amount = 0;
+        self.amount_claimed = 0;
+        self.start = 0;
+        self.duration = 0;
+        self.cliff = 0;
     }
 }
 
@@ -60,7 +250,7 @@ mod tests {
             epoch_height: 0,
         }
     }
-
+/* 
     #[test]
     fn set_get_message() {
         let context = get_context(vec![], false);
@@ -79,5 +269,5 @@ mod tests {
         testing_env!(context);
         let contract = StatusMessage::default();
         assert_eq!(None, contract.get_status("francis.near".to_string()));
-    }
+    } */
 }
