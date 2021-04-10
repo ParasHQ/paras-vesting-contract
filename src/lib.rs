@@ -5,11 +5,8 @@ use near_sdk::{AccountId, Balance, Promise, PanicOnDefault, assert_one_yocto, lo
 use near_contract_standards::upgrade::Ownable;
 
 use crate::utils::{ext_fungible_token, ext_self, GAS_FOR_FT_TRANSFER};
-
 mod utils;
 
-//#[global_allocator]
-//static ALLOC: near_sdk::wee_alloc::WeeAlloc = near_sdk::wee_alloc::WeeAlloc::INIT; //ini buat apaan?
 near_sdk::setup_alloc!();
 
 #[near_bindgen]
@@ -60,10 +57,10 @@ impl Contract {
         cliff: u64,
         revocable: bool,
     ) -> Self {
-        assert!(!env::state_exists(), "Already initialized");
-        assert!(cliff < duration, "Cliff duration is higher than vesting duration.");
-        assert!(duration > 0, "Vesting duration is less than 0");
-        assert!((start.checked_add(duration.into()).expect("Integer overflow")) > env::block_timestamp().into(), "Start and duration is not in the future");
+        assert!(!env::state_exists(), "ERR_CONTRACT_HAS_INITIALIZED");
+        assert!(cliff < duration, "ERR_CLIFF_IS_HIGHER_THAN_DURATION");
+        assert!(duration > 0, "ERR_DURATION_IS_LESS_THAN_ZERO");
+        assert!((start.checked_add(duration.into()).expect("ERR_INTEGER_OVERFLOW")) > env::block_timestamp().into(), "ERR_START_AND_DURATION_IS_IN_THE_PAST");
         let this = Self {
             owner: owner.into(),
             recipient: recipient.into(),
@@ -72,7 +69,7 @@ impl Contract {
             amount_claimed: 0,
             start: start,
             duration: duration,
-            cliff: start.checked_add(cliff.into()).expect("Integer overflow"),
+            cliff: start.checked_add(cliff.into()).expect("ERR_INTEGER_OVERFLOW"),
             revocable: revocable,
             is_active: true,
         };
@@ -113,9 +110,9 @@ impl Contract {
 
     pub fn claim_vested(&mut self) -> Promise {
         let releasable = self.releasable_amount();
-        assert!(releasable > 0, "No vested amounts are due");
+        assert!(releasable > 0, "ERR_NO_VESTED_AMOUNT_ARE_DUE");
 
-        self.amount_claimed = self.amount_claimed + releasable;
+        self.amount_claimed = self.amount_claimed.checked_add(releasable).expect("ERR_INTEGER_OVERFLOW");
 
         ext_fungible_token::ft_transfer(
             self.recipient.clone(),
@@ -128,7 +125,7 @@ impl Contract {
     }
 
     pub fn releasable_amount(&self) -> u128 {
-        self.calculate_amount_vested().checked_sub(self.amount_claimed()).expect("Integer underflow")
+        self.calculate_amount_vested().checked_sub(self.amount_claimed()).expect("ERR_INTEGER_OVERFLOW")
     }
 
     pub fn calculate_amount_vested(&self) -> u128{
@@ -137,11 +134,9 @@ impl Contract {
         }
 
         let elapsed_time = env::block_timestamp() - self.cliff;
-        //let elapsed_months = elapsed_time / NANO_SECONDS_PER_MONTH;
 
-        // if over vesting period, return all remaning grant
         if elapsed_time >= self.duration {
-            let vested_amount = self.amount.checked_sub(self.amount_claimed).expect("Integer underflow");
+            let vested_amount = self.amount.checked_sub(self.amount_claimed).expect("ERR_INTEGER_OVERFLOW");
             return vested_amount;
         } else {
             let vested_amount = self.amount * (elapsed_time as u128 / self.duration as u128);
@@ -156,8 +151,8 @@ impl Contract {
 
     pub fn sweep_grant(&mut self, amount: Balance) -> Promise {
         self.assert_owner();
-        assert!(true, "function disabled");
-        assert!(!self.is_active, "Vesting contract still active");
+        assert!(true, "ERR_FUNCTION_DISABLED");
+        assert!(!self.is_active, "ERR_VESTING_CONTRACT_STILL_ACTIVE");
         ext_fungible_token::ft_transfer(
             self.owner.clone().into(),
             amount.into(),
@@ -186,9 +181,9 @@ impl Contract {
     pub fn revoke(&mut self, recipient: ValidAccountId) -> Promise {
         self.assert_owner();
         assert_one_yocto();
-        assert!(true, "function disabled");
-        assert!(self.revocable == true, "Grant non revocable");
-        assert!(self.is_active, "Token already revoked");
+        assert!(true, "ERR_FUNCTION_DISABLED");
+        assert!(self.revocable == true, "ERR_GRANT_NOT_REVOCABLE");
+        assert!(self.is_active, "ERR_VESTING_CONTRACT_NOT_ACTIVE");
 
         let amount_vested: u128 = self.calculate_amount_vested();
         let amount_not_vested: u128 = self.amount.checked_sub(self.amount_claimed).expect("Integer underflow").checked_sub(amount_vested).expect("Integer underflow");
