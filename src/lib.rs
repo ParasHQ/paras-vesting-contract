@@ -80,16 +80,16 @@ impl Contract {
         self.recipient.clone()
     }
 
-    pub fn amount(&self) -> u128 {
-        self.amount
+    pub fn amount(&self) -> U128 {
+        self.amount.into()
     }
 
     pub fn token(&self) -> AccountId {
         self.token.clone()
     }
 
-    pub fn amount_claimed(&self) -> u128 {
-        self.amount_claimed
+    pub fn amount_claimed(&self) -> U128 {
+        self.amount_claimed.into()
     }
 
     pub fn cliff(&self) -> u64 {
@@ -110,8 +110,9 @@ impl Contract {
 
     pub fn claim_vested(&mut self) -> Promise {
         assert!(self.is_active, "ERR_VESTING_CONTRACT_NOT_ACTIVE");
-        let releasable = self.releasable_amount();
+        let releasable = self.internal_releasable_amount();
         assert!(releasable > 0, "ERR_NO_VESTED_AMOUNT_ARE_DUE");
+        //assert!(env::current_account_id() == self.recipient(), "ERR_CALLER_NOT_RECIPIENT");
 
         self.amount_claimed = self.amount_claimed.checked_add(releasable).expect("ERR_INTEGER_OVERFLOW");
 
@@ -125,8 +126,13 @@ impl Contract {
         )
     }
 
-    pub fn releasable_amount(&self) -> u128 {
-        self.calculate_amount_vested().checked_sub(self.amount_claimed()).expect("ERR_INTEGER_OVERFLOW")
+    pub fn releasable_amount(&self) -> U128 {
+        self.internal_releasable_amount().into()
+    }
+
+    #[private]
+    pub fn internal_releasable_amount(&self) -> u128 {
+        self.calculate_amount_vested().checked_sub(self.amount_claimed).expect("ERR_INTEGER_OVERFLOW")
     }
 
     pub fn calculate_amount_vested(&self) -> u128{
@@ -153,7 +159,7 @@ impl Contract {
         assert!(self.revocable == true, "ERR_GRANT_NOT_REVOCABLE");
         assert!(self.is_active, "ERR_VESTING_CONTRACT_NOT_ACTIVE");
 
-        let releasable: u128 = self.releasable_amount();
+        let releasable: u128 = self.internal_releasable_amount();
         let amount_not_vested: u128 = self.amount.checked_sub(self.amount_claimed).expect("Integer underflow").checked_sub(releasable).expect("Integer underflow");
 
         self.is_active = false;
@@ -228,13 +234,13 @@ mod tests {
     fn test_new() {
         let mut context = get_context(accounts(1));
         testing_env!(context.build());
-        let contract = Contract::new(accounts(1).into(), accounts(3).into(), accounts(2).into(), TEN_MILLION_PARAS_TOKEN, JUNE_1_2021, TWO_YEARS, SIX_MONTHS, false);
+        let contract = Contract::new(accounts(1).into(), accounts(3).into(), accounts(2).into(), TOTAL_AMOUNT, JUNE_1_2021, TWO_YEARS, SIX_MONTHS, false);
         testing_env!(context.is_view(true).build());
         assert_eq!(contract.get_owner(), accounts(1).to_string());
         assert_eq!(contract.recipient(), accounts(3).to_string());
         assert_eq!(contract.token(), accounts(2).to_string());
-        assert_eq!(contract.amount(), u128::from(TEN_MILLION_PARAS_TOKEN));
-        assert_eq!(contract.amount_claimed(), 0);
+        assert_eq!(contract.amount(), TOTAL_AMOUNT);
+        assert_eq!(contract.amount_claimed(), U128(0));
         assert_eq!(contract.start(), JUNE_1_2021);
         assert_eq!(contract.cliff(), JUNE_1_2021 + SIX_MONTHS);
         assert_eq!(contract.duration(), TWO_YEARS);
@@ -309,7 +315,7 @@ mod tests {
             .block_timestamp(contract.cliff)
             .build()
         );
-        let releasable_amount = contract.releasable_amount();
+        let releasable_amount = contract.internal_releasable_amount();
         assert_eq!(releasable_amount, 0);
 
         testing_env!(context
@@ -317,7 +323,7 @@ mod tests {
             .block_timestamp(contract.cliff + ONE_MONTH)
             .build()
         );
-        let releasable_amount = contract.releasable_amount();
+        let releasable_amount = contract.internal_releasable_amount();
         assert_eq!(releasable_amount, (u128::from(TOTAL_AMOUNT) / contract.duration as u128) * ONE_MONTH as u128);
 
         // claim
@@ -330,7 +336,7 @@ mod tests {
             .block_timestamp(contract.cliff + ONE_MONTH*2)
             .build()
         );
-        let releasable_amount = contract.releasable_amount();
+        let releasable_amount = contract.internal_releasable_amount();
         assert_eq!(releasable_amount, (u128::from(TOTAL_AMOUNT) / contract.duration as u128) * ONE_MONTH as u128);
 
         // claim
@@ -347,14 +353,14 @@ mod tests {
         let amount_vested = contract.calculate_amount_vested();
         assert_eq!(amount_vested, u128::from(TOTAL_AMOUNT));
 
-        let releasable_amount = contract.releasable_amount();
+        let releasable_amount = contract.internal_releasable_amount();
         assert_eq!(releasable_amount, u128::from(TOTAL_AMOUNT) - (2*(u128::from(TOTAL_AMOUNT) / contract.duration as u128) * ONE_MONTH as u128));
 
         contract.claim_vested();
         assert_eq!(contract.amount_claimed, u128::from(TOTAL_AMOUNT));
 
         // after claim everything
-        let releasable_amount = contract.releasable_amount();
+        let releasable_amount = contract.internal_releasable_amount();
         assert_eq!(releasable_amount, 0);
     }
 
@@ -366,7 +372,7 @@ mod tests {
             .block_timestamp(contract.cliff + ONE_MONTH)
             .build()
         );
-        let releasable_amount = contract.releasable_amount();
+        let releasable_amount = contract.internal_releasable_amount();
         assert_eq!(releasable_amount, (u128::from(TOTAL_AMOUNT) / contract.duration as u128) * ONE_MONTH as u128);
 
         // claim
@@ -381,10 +387,10 @@ mod tests {
         );
 
         let current_amount_claimed = contract.amount_claimed();
-        let releasable_amount = contract.releasable_amount();
+        let releasable_amount = contract.internal_releasable_amount();
         // revoke
         let amount_not_vested = contract.revoke(accounts(1));
-        assert_eq!(amount_not_vested, u128::from(TOTAL_AMOUNT) - current_amount_claimed - releasable_amount);
+        assert_eq!(amount_not_vested, u128::from(TOTAL_AMOUNT) - u128::from(current_amount_claimed) - u128::from(releasable_amount));
 
         assert_eq!(contract.is_active, false);
         assert_eq!(contract.recipient(), accounts(1).to_string());
