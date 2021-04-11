@@ -5,6 +5,7 @@
   "scripts": {
     "build": "cargo build --all --target wasm32-unknown-unknown --release",
     "postbuild": "cp target/wasm32-unknown-unknown/release/paras_vesting_contract.wasm ./res/",
+    "test": "cargo test -- --nocapture --color always",
     "dev": "near dev-deploy --wasmFile ./res/paras_vesting_contract.wasm"
   },
   "keywords": [
