@@ -133,13 +133,15 @@ impl Contract {
             return 0;
         }
 
-        let elapsed_time = env::block_timestamp() - self.cliff;
+        let elapsed_time = env::block_timestamp().checked_sub(self.cliff).expect("ERR_INTEGER_OVERFLOW");
 
         if elapsed_time >= self.duration {
-            let vested_amount = self.amount.checked_sub(self.amount_claimed).expect("ERR_INTEGER_OVERFLOW");
+            let vested_amount = self.amount;
             return vested_amount;
         } else {
-            let vested_amount = self.amount * (elapsed_time as u128 / self.duration as u128);
+            log!("Elapsed time : {}", elapsed_time);
+            let amount_per_nanoseconds = self.amount / self.duration as u128;
+            let vested_amount = amount_per_nanoseconds * elapsed_time as u128;
             return vested_amount;
         }
     }
@@ -218,51 +220,189 @@ impl Contract {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
+    use near_sdk::test_utils::{accounts, VMContextBuilder};
     use near_sdk::MockedBlockchain;
-    use near_sdk::{testing_env, VMContext};
+    use near_sdk::{testing_env};
 
-    fn get_context(input: Vec<u8>, is_view: bool) -> VMContext {
-        VMContext {
-            current_account_id: "alice_near".to_string(),
-            signer_account_id: "bob_near".to_string(),
-            signer_account_pk: vec![0, 1, 2],
-            predecessor_account_id: "carol_near".to_string(),
-            input,
-            block_index: 0,
-            block_timestamp: 0,
-            account_balance: 0,
-            account_locked_balance: 0,
-            storage_usage: 0,
-            attached_deposit: 0,
-            prepaid_gas: 10u64.pow(18),
-            random_seed: vec![0, 1, 2],
-            is_view,
-            output_data_receivers: vec![],
-            epoch_height: 0,
-        }
+    const ONE_PARAS_TOKEN: U128 = U128(1_000_000_000_000_000_000_000_000);
+    const TEN_PARAS_TOKEN: U128 = U128(10_000_000_000_000_000_000_000_000);
+    const TEN_MILLION_PARAS_TOKEN: U128 = U128(10_000_000_000_000_000_000_000_000_000_000);
+    const FIVE_HUNDRED_THOUSAND_PARAS_TOKEN: U128 = U128(500_000_000_000_000_000_000_000_000_000);
+    const TOTAL_AMOUNT: U128 = FIVE_HUNDRED_THOUSAND_PARAS_TOKEN;
+
+    // IN NANO SECONDS
+    const TWO_YEARS: u64 = 63072_000_000_000_000;
+    const JUNE_1_2021: u64 = 1622505600000000000; // Tuesday, June 1, 2021 12:00:00 AM GMT
+    const ONE_MONTH:u64 = 2629746000000000; // 30.436875*24*60*60*10**9
+    const ONE_DAY:u64 = 86400000000000;
+    const SIX_MONTHS: u64 = 15552000000000000;
+
+    fn get_context(predecessor_account_id: ValidAccountId) -> VMContextBuilder {
+        let mut builder = VMContextBuilder::new();
+        builder
+            .current_account_id(accounts(0))
+            .signer_account_id(predecessor_account_id.clone())
+            .predecessor_account_id(predecessor_account_id);
+        builder
     }
-/* 
+
+    fn setup_contract() -> (VMContextBuilder, Contract) {
+        let mut context = VMContextBuilder::new();
+        testing_env!(context.predecessor_account_id(accounts(0)).build());
+        let contract = Contract::new(accounts(1).into(), accounts(3).into(), accounts(2).into(), TOTAL_AMOUNT, JUNE_1_2021, TWO_YEARS, SIX_MONTHS, false);
+        (context, contract)
+    }
+
+    
     #[test]
-    fn set_get_message() {
-        let context = get_context(vec![], false);
-        testing_env!(context);
-        let mut contract = StatusMessage::default();
-        contract.set_status("hello".to_string());
-        assert_eq!(
-            "hello".to_string(),
-            contract.get_status("bob_near".to_string()).unwrap()
+    fn test_new() {
+        let mut context = get_context(accounts(1));
+        testing_env!(context.build());
+        let contract = Contract::new(accounts(1).into(), accounts(3).into(), accounts(2).into(), TEN_MILLION_PARAS_TOKEN, JUNE_1_2021, TWO_YEARS, SIX_MONTHS, false);
+        testing_env!(context.is_view(true).build());
+        assert_eq!(contract.get_owner(), accounts(1).to_string());
+        assert_eq!(contract.recipient(), accounts(3).to_string());
+        assert_eq!(contract.token(), accounts(2).to_string());
+        assert_eq!(contract.amount(), u128::from(TEN_MILLION_PARAS_TOKEN));
+        assert_eq!(contract.amount_claimed(), 0);
+        assert_eq!(contract.start(), JUNE_1_2021);
+        assert_eq!(contract.cliff(), JUNE_1_2021 + SIX_MONTHS);
+        assert_eq!(contract.duration(), TWO_YEARS);
+        assert_eq!(contract.revocable(), false);
+        assert_eq!(contract.is_active, true);
+    }
+
+    #[test]
+    fn test_calculate_amount_vested() {
+        let (mut context, mut contract) = setup_contract();
+        testing_env!(context
+            .predecessor_account_id(accounts(3))
+            .block_timestamp(1618109122863866400)
+            .build()
         );
+        let amount_vested = contract.calculate_amount_vested();
+        assert_eq!(amount_vested, 0);
+        // after start before cliff ONE DAY
+        testing_env!(context
+            .predecessor_account_id(accounts(3))
+            .block_timestamp(contract.start + ONE_DAY)
+            .build()
+        );
+        let amount_vested = contract.calculate_amount_vested();
+        assert_eq!(amount_vested, 0);
+
+        // after start before cliff ONE MONTH
+        testing_env!(context
+            .predecessor_account_id(accounts(3))
+            .block_timestamp(contract.start + ONE_MONTH)
+            .build()
+        );
+        let amount_vested = contract.calculate_amount_vested();
+        assert_eq!(amount_vested, 0);
+
+        // after cliff after ONE DAY
+        // FIVE_HUNDRED_THOUSAND_PARAS / contract.duration * ONE_DAY == 684931506849302400000000000 == 684.9315068493024 PARAS/day
+        testing_env!(context
+            .predecessor_account_id(accounts(3))
+            .block_timestamp(contract.cliff + ONE_DAY)
+            .build()
+        );
+        let amount_vested = contract.calculate_amount_vested();
+        assert_eq!(amount_vested, (u128::from(TOTAL_AMOUNT) / contract.duration as u128) * ONE_DAY as u128);
+
+        // after cliff after ONE MONTH
+        // (FIVE_HUNDRED_THOUSAND_PARAS / contract.duration) * ONE_MONTH == 20847174657533860986000000000 == 20847.174657533862 PARAS/month
+        testing_env!(context
+            .predecessor_account_id(accounts(3))
+            .block_timestamp(contract.cliff + ONE_MONTH)
+            .build()
+        );
+        let amount_vested = contract.calculate_amount_vested();
+        assert_eq!(amount_vested, (u128::from(TOTAL_AMOUNT) / contract.duration as u128) * ONE_MONTH as u128);
+
+        // after cliff after duration (vesting over)
+        testing_env!(context
+            .predecessor_account_id(accounts(3))
+            .block_timestamp(contract.cliff + contract.duration + 1)
+            .build()
+        );
+        let amount_vested = contract.calculate_amount_vested();
+        assert_eq!(amount_vested, u128::from(TOTAL_AMOUNT));
+
     }
 
     #[test]
-    fn get_nonexistent_message() {
-        let context = get_context(vec![], true);
-        testing_env!(context);
-        let contract = StatusMessage::default();
-        assert_eq!(None, contract.get_status("francis.near".to_string()));
-    } */
+    fn test_claim_vested() {
+        let (mut context, mut contract) = setup_contract();
+        testing_env!(context
+            .predecessor_account_id(accounts(3))
+            .block_timestamp(contract.cliff)
+            .build()
+        );
+        let releasable_amount = contract.releasable_amount();
+        assert_eq!(releasable_amount, 0);
+
+        testing_env!(context
+            .predecessor_account_id(accounts(3))
+            .block_timestamp(contract.cliff + ONE_MONTH)
+            .build()
+        );
+        let releasable_amount = contract.releasable_amount();
+        assert_eq!(releasable_amount, (u128::from(TOTAL_AMOUNT) / contract.duration as u128) * ONE_MONTH as u128);
+
+        // claim
+        contract.claim_vested();
+        assert_eq!(contract.amount_claimed, (u128::from(TOTAL_AMOUNT) / contract.duration as u128) * ONE_MONTH as u128);
+
+        // the next month
+        testing_env!(context
+            .predecessor_account_id(accounts(3))
+            .block_timestamp(contract.cliff + ONE_MONTH*2)
+            .build()
+        );
+        let releasable_amount = contract.releasable_amount();
+        assert_eq!(releasable_amount, (u128::from(TOTAL_AMOUNT) / contract.duration as u128) * ONE_MONTH as u128);
+
+        // claim
+        contract.claim_vested();
+        assert_eq!(contract.amount_claimed, 2*(u128::from(TOTAL_AMOUNT) / contract.duration as u128) * ONE_MONTH as u128);
+
+        // after vesting period over
+        testing_env!(context
+            .predecessor_account_id(accounts(3))
+            .block_timestamp(contract.cliff + contract.duration + 1)
+            .build()
+        );
+
+        let amount_vested = contract.calculate_amount_vested();
+        assert_eq!(amount_vested, u128::from(TOTAL_AMOUNT));
+
+        let releasable_amount = contract.releasable_amount();
+        assert_eq!(releasable_amount, u128::from(TOTAL_AMOUNT) - (2*(u128::from(TOTAL_AMOUNT) / contract.duration as u128) * ONE_MONTH as u128));
+
+        contract.claim_vested();
+        assert_eq!(contract.amount_claimed, u128::from(TOTAL_AMOUNT));
+
+        // after claim everything
+        let releasable_amount = contract.releasable_amount();
+        assert_eq!(releasable_amount, 0);
+    }
+
+    // NEGATIVE
+    #[test]
+    #[should_panic(expected = "ERR_NO_VESTED_AMOUNT_ARE_DUE")]
+    fn test_invalid_claim_vested() {
+        let (mut context, mut contract) = setup_contract();
+        testing_env!(context
+            .predecessor_account_id(accounts(3))
+            .block_timestamp(contract.cliff)
+            .build()
+        );
+        contract.claim_vested();
+    }
+
+
 }
