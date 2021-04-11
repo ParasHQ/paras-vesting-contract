@@ -5,7 +5,10 @@
   "scripts": {
     "build": "cargo build --all --target wasm32-unknown-unknown --release",
     "postbuild": "cp target/wasm32-unknown-unknown/release/paras_vesting_contract.wasm ./res/",
-    "dev": "near dev-deploy --wasmFile ./res/paras_vesting_contract.wasm"
+    "test": "cargo test -- --nocapture --color always",
+    "deploy:contract:dev": "yarn build && NODE_ENV=testnet near dev-deploy --wasmFile ./res/paras_vesting_contract.wasm",
+    "deploy:contract:testnet": "yarn build && NODE_ENV=testnet node deployContract.js",
+    "deploy:contract:mainnet": "yarn build && NODE_ENV=mainnet node deployContract.js"
   },
   "keywords": [
     "near-protocol",
@@ -15,5 +18,15 @@
   ],
   "author": "Paras",
   "license": "(MIT AND Apache-2.0)",
-  "devDependencies": {}
+  "devDependencies": {},
+  "dependencies": {
+		"axios": "^0.21.1",
+		"blurhash": "^1.1.3",
+		"body-parser": "^1.19.0",
+		"bs58": "^4.0.1",
+		"dotenv": "^8.2.0",
+		"js-base64": "^3.5.2",
+		"near-api-js": "^0.31.0",
+		"sha256": "^0.2.0"
+	}
 }
