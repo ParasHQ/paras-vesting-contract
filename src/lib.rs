@@ -109,10 +109,10 @@ impl Contract {
     }
 
     pub fn claim_vested(&mut self) -> Promise {
+        assert!(env::predecessor_account_id() == self.recipient(), "ERR_CALLER_NOT_RECIPIENT");
         assert!(self.is_active, "ERR_VESTING_CONTRACT_NOT_ACTIVE");
         let releasable = self.internal_releasable_amount();
         assert!(releasable > 0, "ERR_NO_VESTED_AMOUNT_ARE_DUE");
-        //assert!(env::current_account_id() == self.recipient(), "ERR_CALLER_NOT_RECIPIENT");
 
         self.amount_claimed = self.amount_claimed.checked_add(releasable).expect("ERR_INTEGER_OVERFLOW");
 
@@ -408,6 +408,17 @@ mod tests {
         testing_env!(context
             .predecessor_account_id(accounts(3))
             .block_timestamp(contract.cliff)
+            .build()
+        );
+        contract.claim_vested();
+    }
+    #[test]
+    #[should_panic(expected = "ERR_CALLER_NOT_RECIPIENT")]
+    fn test_invalid_claim_vested_caller_not_recipient() {
+        let (mut context, mut contract) = setup_contract();
+        testing_env!(context
+            .predecessor_account_id(accounts(4))
+            .block_timestamp(contract.cliff+contract.duration)
             .build()
         );
         contract.claim_vested();
