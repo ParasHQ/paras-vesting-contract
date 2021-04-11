@@ -109,6 +109,7 @@ impl Contract {
     }
 
     pub fn claim_vested(&mut self) -> Promise {
+        assert!(self.is_active, "ERR_VESTING_CONTRACT_NOT_ACTIVE");
         let releasable = self.releasable_amount();
         assert!(releasable > 0, "ERR_NO_VESTED_AMOUNT_ARE_DUE");
 
@@ -146,50 +147,33 @@ impl Contract {
         }
     }
 
-    // Design Choice : 
-    // 1. Revoke + send amount not vested (all amount) to recipient
-    // 2. Revoke and sweep_grant -> ownerOnly
-    // 3. no revoke function
-
-    pub fn sweep_grant(&mut self, amount: Balance) -> Promise {
+    pub fn revoke(&mut self, recipient: ValidAccountId) -> u128 {
         self.assert_owner();
-        assert!(true, "ERR_FUNCTION_DISABLED");
-        assert!(!self.is_active, "ERR_VESTING_CONTRACT_STILL_ACTIVE");
+        assert_one_yocto();
+        assert!(self.revocable == true, "ERR_GRANT_NOT_REVOCABLE");
+        assert!(self.is_active, "ERR_VESTING_CONTRACT_NOT_ACTIVE");
+
+        let releasable: u128 = self.releasable_amount();
+        let amount_not_vested: u128 = self.amount.checked_sub(self.amount_claimed).expect("Integer underflow").checked_sub(releasable).expect("Integer underflow");
+
+        self.is_active = false;
+        self.recipient = self.owner.clone();
+        self.amount = 0;
+        self.start = 0;
+        self.duration = 0;
+        self.cliff = 0;
+
+        // transfer current amount_vested to original recipient
         ext_fungible_token::ft_transfer(
-            self.owner.clone().into(),
-            amount.into(),
+            self.recipient(),
+            releasable.into(),
             None,
             &self.token,
             1,
             GAS_FOR_FT_TRANSFER
-        )
-    }
+        );
 
-    /*
-    pub fn revoke(&mut self) {
-        self.assert_owner();
-        assert_one_yocto();
-        assert!(self.revocable == true, "Grant non revocable");
-        self.is_active = false;
-        self.recipient = self.owner.clone();
-        self.amount = 0;
-        self.amount_claimed = 0;
-        self.start = 0;
-        self.duration = 0;
-        self.cliff = 0;
-    }
-    */
-
-    pub fn revoke(&mut self, recipient: ValidAccountId) -> Promise {
-        self.assert_owner();
-        assert_one_yocto();
-        assert!(true, "ERR_FUNCTION_DISABLED");
-        assert!(self.revocable == true, "ERR_GRANT_NOT_REVOCABLE");
-        assert!(self.is_active, "ERR_VESTING_CONTRACT_NOT_ACTIVE");
-
-        let amount_vested: u128 = self.calculate_amount_vested();
-        let amount_not_vested: u128 = self.amount.checked_sub(self.amount_claimed).expect("Integer underflow").checked_sub(amount_vested).expect("Integer underflow");
-
+        // transfer leftover to recipient specified
         ext_fungible_token::ft_transfer(
             recipient.into(),
             amount_not_vested.into(),
@@ -197,26 +181,9 @@ impl Contract {
             &self.token,
             1,
             GAS_FOR_FT_TRANSFER
-        ).then(
-        ext_self::callback_revoke(
-            &env::current_account_id(),
-            0,
-            env::prepaid_gas() - GAS_FOR_FT_TRANSFER
-        )
-        )
-    }
+        );
 
-
-    #[private]
-    pub fn callback_revoke(&mut self) {
-        // ft_transfer returns void, there is no way to make sure ft_transfer successful
-        self.is_active = false;
-        self.recipient = self.owner.clone();
-        self.amount = 0;
-        self.amount_claimed = 0;
-        self.start = 0;
-        self.duration = 0;
-        self.cliff = 0;
+        return amount_not_vested;
     }
 }
 
@@ -252,7 +219,7 @@ mod tests {
     fn setup_contract() -> (VMContextBuilder, Contract) {
         let mut context = VMContextBuilder::new();
         testing_env!(context.predecessor_account_id(accounts(0)).build());
-        let contract = Contract::new(accounts(1).into(), accounts(3).into(), accounts(2).into(), TOTAL_AMOUNT, JUNE_1_2021, TWO_YEARS, SIX_MONTHS, false);
+        let contract = Contract::new(accounts(1).into(), accounts(3).into(), accounts(2).into(), TOTAL_AMOUNT, JUNE_1_2021, TWO_YEARS, SIX_MONTHS, true);
         (context, contract)
     }
 
@@ -391,6 +358,42 @@ mod tests {
         assert_eq!(releasable_amount, 0);
     }
 
+    #[test]
+    fn test_revoke() {
+        let (mut context, mut contract) = setup_contract();
+        testing_env!(context
+            .predecessor_account_id(accounts(3))
+            .block_timestamp(contract.cliff + ONE_MONTH)
+            .build()
+        );
+        let releasable_amount = contract.releasable_amount();
+        assert_eq!(releasable_amount, (u128::from(TOTAL_AMOUNT) / contract.duration as u128) * ONE_MONTH as u128);
+
+        // claim
+        contract.claim_vested();
+        assert_eq!(contract.amount_claimed, (u128::from(TOTAL_AMOUNT) / contract.duration as u128) * ONE_MONTH as u128);
+
+        testing_env!(context
+            .predecessor_account_id(accounts(1))
+            .block_timestamp(contract.cliff + ONE_MONTH)
+            .attached_deposit(1)
+            .build()
+        );
+
+        let current_amount_claimed = contract.amount_claimed();
+        let releasable_amount = contract.releasable_amount();
+        // revoke
+        let amount_not_vested = contract.revoke(accounts(1));
+        assert_eq!(amount_not_vested, u128::from(TOTAL_AMOUNT) - current_amount_claimed - releasable_amount);
+
+        assert_eq!(contract.is_active, false);
+        assert_eq!(contract.recipient(), accounts(1).to_string());
+        assert_eq!(contract.amount, 0);
+        assert_eq!(contract.start, 0);
+        assert_eq!(contract.duration, 0);
+        assert_eq!(contract.cliff, 0);
+
+    }
     // NEGATIVE
     #[test]
     #[should_panic(expected = "ERR_NO_VESTED_AMOUNT_ARE_DUE")]
