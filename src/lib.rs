@@ -4,7 +4,7 @@ use near_sdk::json_types::{U128, ValidAccountId};
 use near_sdk::{AccountId, Balance, Promise, PanicOnDefault, assert_one_yocto, log};
 use near_contract_standards::upgrade::Ownable;
 
-use crate::utils::{ext_fungible_token, ext_self, GAS_FOR_FT_TRANSFER};
+use crate::utils::{ext_fungible_token, ext_self, GAS_FOR_FT_TRANSFER, ONE_MONTH};
 mod utils;
 
 near_sdk::setup_alloc!();
@@ -146,9 +146,8 @@ impl Contract {
             let vested_amount = self.amount;
             return vested_amount;
         } else {
-            log!("Elapsed time : {}", elapsed_time);
-            let amount_per_nanoseconds = self.amount / self.duration as u128;
-            let vested_amount = amount_per_nanoseconds * elapsed_time as u128;
+            let amount_per_months = self.amount / ( self.duration / ONE_MONTH ) as u128;
+            let vested_amount = amount_per_months * ( elapsed_time / ONE_MONTH ) as u128;
             return vested_amount;
         }
     }
@@ -207,11 +206,11 @@ mod tests {
     const TOTAL_AMOUNT: U128 = FIVE_HUNDRED_THOUSAND_PARAS_TOKEN;
 
     // IN NANO SECONDS
-    const TWO_YEARS: u64 = 63072_000_000_000_000;
-    const JUNE_1_2021: u64 = 1622505600000000000; // Tuesday, June 1, 2021 12:00:00 AM GMT
     const ONE_MONTH:u64 = 2629746000000000; // 30.436875*24*60*60*10**9
+    const TWO_YEARS: u64 = ONE_MONTH * 12 * 2;
+    const JUNE_1_2021: u64 = 1622505600000000000; // Tuesday, June 1, 2021 12:00:00 AM GMT
     const ONE_DAY:u64 = 86400000000000;
-    const SIX_MONTHS: u64 = 15552000000000000;
+    const SIX_MONTHS: u64 = ONE_MONTH * 6;
 
     fn get_context(predecessor_account_id: ValidAccountId) -> VMContextBuilder {
         let mut builder = VMContextBuilder::new();
@@ -258,6 +257,7 @@ mod tests {
         );
         let amount_vested = contract.calculate_amount_vested();
         assert_eq!(amount_vested, 0);
+
         // after start before cliff ONE DAY
         testing_env!(context
             .predecessor_account_id(accounts(3))
@@ -276,25 +276,35 @@ mod tests {
         let amount_vested = contract.calculate_amount_vested();
         assert_eq!(amount_vested, 0);
 
-        // after cliff after ONE DAY
-        // FIVE_HUNDRED_THOUSAND_PARAS / contract.duration * ONE_DAY == 684931506849302400000000000 == 684.9315068493024 PARAS/day
+        // after cliff after ONE_DAY*29
+        // month -> 0
         testing_env!(context
             .predecessor_account_id(accounts(3))
-            .block_timestamp(contract.cliff + ONE_DAY)
+            .block_timestamp(contract.cliff + ONE_DAY*29)
             .build()
         );
         let amount_vested = contract.calculate_amount_vested();
-        assert_eq!(amount_vested, (u128::from(TOTAL_AMOUNT) / contract.duration as u128) * ONE_DAY as u128);
+        assert_eq!(amount_vested, 0);
 
         // after cliff after ONE MONTH
-        // (FIVE_HUNDRED_THOUSAND_PARAS / contract.duration) * ONE_MONTH == 20847174657533860986000000000 == 20847.174657533862 PARAS/month
+        // (FIVE_HUNDRED_THOUSAND_PARAS / (contract.duration / ONE_MONTH)) == 20833333333333333333333333333 == 20833.333333333332 PARAS/month
         testing_env!(context
             .predecessor_account_id(accounts(3))
             .block_timestamp(contract.cliff + ONE_MONTH)
             .build()
         );
         let amount_vested = contract.calculate_amount_vested();
-        assert_eq!(amount_vested, (u128::from(TOTAL_AMOUNT) / contract.duration as u128) * ONE_MONTH as u128);
+        assert_eq!(amount_vested, (u128::from(TOTAL_AMOUNT) / (contract.duration as u128 / ONE_MONTH as u128)));
+
+        // after cliff after ONE MONTH + 29 Days
+        // (FIVE_HUNDRED_THOUSAND_PARAS / (contract.duration / ONE_MONTH)) == 20833333333333333333333333333 == 20833.333333333332 PARAS/month
+        testing_env!(context
+            .predecessor_account_id(accounts(3))
+            .block_timestamp(contract.cliff + ONE_MONTH + ONE_DAY*29)
+            .build()
+        );
+        let amount_vested = contract.calculate_amount_vested();
+        assert_eq!(amount_vested, (u128::from(TOTAL_AMOUNT) / (contract.duration as u128 / ONE_MONTH as u128)));
 
         // after cliff after duration (vesting over)
         testing_env!(context
@@ -324,11 +334,11 @@ mod tests {
             .build()
         );
         let releasable_amount = contract.internal_releasable_amount();
-        assert_eq!(releasable_amount, (u128::from(TOTAL_AMOUNT) / contract.duration as u128) * ONE_MONTH as u128);
+        assert_eq!(releasable_amount, (u128::from(TOTAL_AMOUNT) / (contract.duration / ONE_MONTH) as u128));
 
         // claim
         contract.claim_vested();
-        assert_eq!(contract.amount_claimed, (u128::from(TOTAL_AMOUNT) / contract.duration as u128) * ONE_MONTH as u128);
+        assert_eq!(contract.amount_claimed, (u128::from(TOTAL_AMOUNT) / (contract.duration / ONE_MONTH) as u128));
 
         // the next month
         testing_env!(context
@@ -337,11 +347,11 @@ mod tests {
             .build()
         );
         let releasable_amount = contract.internal_releasable_amount();
-        assert_eq!(releasable_amount, (u128::from(TOTAL_AMOUNT) / contract.duration as u128) * ONE_MONTH as u128);
+        assert_eq!(releasable_amount, (u128::from(TOTAL_AMOUNT) / (contract.duration / ONE_MONTH) as u128));
 
         // claim
         contract.claim_vested();
-        assert_eq!(contract.amount_claimed, 2*(u128::from(TOTAL_AMOUNT) / contract.duration as u128) * ONE_MONTH as u128);
+        assert_eq!(contract.amount_claimed, 2*(u128::from(TOTAL_AMOUNT) / (contract.duration / ONE_MONTH) as u128));
 
         // after vesting period over
         testing_env!(context
@@ -354,7 +364,7 @@ mod tests {
         assert_eq!(amount_vested, u128::from(TOTAL_AMOUNT));
 
         let releasable_amount = contract.internal_releasable_amount();
-        assert_eq!(releasable_amount, u128::from(TOTAL_AMOUNT) - (2*(u128::from(TOTAL_AMOUNT) / contract.duration as u128) * ONE_MONTH as u128));
+        assert_eq!(releasable_amount, u128::from(TOTAL_AMOUNT) - 2*(u128::from(TOTAL_AMOUNT) / (contract.duration / ONE_MONTH) as u128));
 
         contract.claim_vested();
         assert_eq!(contract.amount_claimed, u128::from(TOTAL_AMOUNT));
@@ -373,11 +383,11 @@ mod tests {
             .build()
         );
         let releasable_amount = contract.internal_releasable_amount();
-        assert_eq!(releasable_amount, (u128::from(TOTAL_AMOUNT) / contract.duration as u128) * ONE_MONTH as u128);
+        assert_eq!(releasable_amount, (u128::from(TOTAL_AMOUNT) / (contract.duration / ONE_MONTH) as u128));
 
         // claim
         contract.claim_vested();
-        assert_eq!(contract.amount_claimed, (u128::from(TOTAL_AMOUNT) / contract.duration as u128) * ONE_MONTH as u128);
+        assert_eq!(contract.amount_claimed, (u128::from(TOTAL_AMOUNT) / (contract.duration / ONE_MONTH) as u128));
 
         testing_env!(context
             .predecessor_account_id(accounts(1))
