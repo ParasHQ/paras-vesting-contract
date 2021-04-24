@@ -1,0 +1,12 @@
+[package]
+name = "paras-vesting-contract"
+version = "0.1.0"
+authors = ["Paras"]
+edition = "2018"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+near-sdk = "3.1.0"
+near-contract-standards = "3.1.0"
