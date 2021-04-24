@@ -1,7 +1,7 @@
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
 use near_sdk::{env, near_bindgen};
 use near_sdk::json_types::{U128, ValidAccountId};
-use near_sdk::{AccountId, Balance, Promise, PanicOnDefault, assert_one_yocto, log};
+use near_sdk::{AccountId, Promise, PanicOnDefault, assert_one_yocto};
 use near_contract_standards::upgrade::Ownable;
 
 use crate::utils::{ext_fungible_token, ext_self, GAS_FOR_FT_TRANSFER, ONE_MONTH};
@@ -152,6 +152,7 @@ impl Contract {
         }
     }
 
+    #[payable]
     pub fn revoke(&mut self, recipient: ValidAccountId) -> u128 {
         self.assert_owner();
         assert_one_yocto();
@@ -249,7 +250,7 @@ mod tests {
 
     #[test]
     fn test_calculate_amount_vested() {
-        let (mut context, mut contract) = setup_contract();
+        let (mut context, contract) = setup_contract();
         testing_env!(context
             .predecessor_account_id(accounts(3))
             .block_timestamp(1618109122863866400)

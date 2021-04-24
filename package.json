@@ -3,8 +3,7 @@
   "version": "1.0.0",
   "description": "Paras vesting contract",
   "scripts": {
-    "build": "cargo build --all --target wasm32-unknown-unknown --release",
-    "postbuild": "cp target/wasm32-unknown-unknown/release/paras_vesting_contract.wasm ./res/",
+    "build": "./build.sh",
     "test": "cargo test -- --nocapture --color always",
     "deploy:contract:dev": "yarn build && NODE_ENV=testnet near dev-deploy --wasmFile ./res/paras_vesting_contract.wasm",
     "deploy:contract:testnet": "yarn build && NODE_ENV=testnet node deployContract.js",
