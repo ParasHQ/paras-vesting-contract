@@ -29,10 +29,7 @@ impl Ownable for Contract {
         self.owner.clone()
     }
 
-    fn set_owner(&mut self, owner: AccountId) {
-        self.assert_owner();
-        self.owner = owner;
-    }
+    fn set_owner(&mut self, _owner: AccountId) {}
 }
 
 /* 
