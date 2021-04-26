@@ -1,10 +1,10 @@
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
 use near_sdk::{env, near_bindgen};
-use near_sdk::json_types::{U128, ValidAccountId};
+use near_sdk::json_types::{U128, U64, ValidAccountId};
 use near_sdk::{AccountId, Promise, PanicOnDefault, assert_one_yocto};
 use near_contract_standards::upgrade::Ownable;
 
-use crate::utils::{ext_fungible_token, ext_self, GAS_FOR_FT_TRANSFER, ONE_MONTH};
+use crate::utils::{ext_fungible_token, GAS_FOR_FT_TRANSFER, ONE_MONTH};
 mod utils;
 
 near_sdk::setup_alloc!();
@@ -92,16 +92,16 @@ impl Contract {
         self.amount_claimed.into()
     }
 
-    pub fn cliff(&self) -> u64 {
-        self.cliff
+    pub fn cliff(&self) -> U64 {
+        self.cliff.into()
     }
 
-    pub fn start(&self) -> u64 {
-        self.start
+    pub fn start(&self) -> U64 {
+        self.start.into()
     }
 
-    pub fn duration(&self) -> u64 {
-        self.duration
+    pub fn duration(&self) -> U64 {
+        self.duration.into()
     }
 
     pub fn revocable(&self) -> bool {
@@ -153,10 +153,10 @@ impl Contract {
     }
 
     #[payable]
-    pub fn revoke(&mut self, recipient: ValidAccountId) -> u128 {
+    pub fn revoke(&mut self, recipient: ValidAccountId) -> U128 {
         self.assert_owner();
         assert_one_yocto();
-        assert!(self.revocable == true, "ERR_GRANT_NOT_REVOCABLE");
+        assert!(self.revocable, "ERR_GRANT_NOT_REVOCABLE");
         assert!(self.is_active, "ERR_VESTING_CONTRACT_NOT_ACTIVE");
 
         let releasable: u128 = self.internal_releasable_amount();
@@ -189,7 +189,7 @@ impl Contract {
             GAS_FOR_FT_TRANSFER
         );
 
-        return amount_not_vested;
+        return amount_not_vested.into();
     }
 }
 

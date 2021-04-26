@@ -1,13 +1,13 @@
-use near_sdk::json_types::U128;
+use near_sdk::json_types::{U128, U64};
 use near_sdk::{AccountId};
 use near_sdk::serde_json::json;
 use near_sdk::serde_json;
-use near_sdk_sim::{call, to_yocto, transaction::ExecutionStatus, view, DEFAULT_GAS, UserAccount};
-use chrono::{DateTime, TimeZone, Utc};
+use near_sdk_sim::{call, transaction::ExecutionStatus, view, DEFAULT_GAS, UserAccount};
+use chrono::{TimeZone, Utc};
 
 
 // use utils::{init as init, register_user};
-use crate::utils::{init, ptoy, ONE_MONTH, SIX_MONTHS, TWO_YEARS, JUNE_1_2021};
+use crate::utils::{init, ptoy, SIX_MONTHS, TWO_YEARS, JUNE_1_2021};
 mod utils;
 
 #[test]
@@ -36,16 +36,19 @@ fn simulate_vesting_init() {
     let amount_claimed: U128 = view!(vesting.amount_claimed()).unwrap_json();
     println!("[VESTING] Total Amount Claimed: {}", serde_json::to_string(&amount_claimed).unwrap());
 
-    let cliff: u64 = view!(vesting.cliff()).unwrap_json();
+    let cliff: U64 = view!(vesting.cliff()).unwrap_json();
+    let cliff: u64 = cliff.into();
     let cliff_dt = Utc.timestamp(cliff as i64 / 10i64.pow(9), 0);
     println!("[VESTING] Cliff ends at : {} , {}", cliff_dt.to_rfc2822(), cliff);
 
 
-    let start: u64 = view!(vesting.start()).unwrap_json();
+    let start: U64 = view!(vesting.start()).unwrap_json();
+    let start: u64 = start.into();
     let start_dt = Utc.timestamp(start as i64 / 10i64.pow(9), 0);
     println!("[VESTING] Vesting starts at : {}, {}",start_dt.to_rfc2822(), start);
 
-    let duration: u64 = view!(vesting.duration()).unwrap_json();
+    let duration: U64 = view!(vesting.duration()).unwrap_json();
+    let duration: u64 = duration.into();
     println!("[VESTING] Vesting duration : {}", duration);
 
     let vesting_end_dt = Utc.timestamp((cliff + duration) as i64 / 10i64.pow(9), 0);
@@ -170,8 +173,8 @@ fn simulate_revoke() {
 
 
     // verify if account is not active
-    let start: u128 = view!(vesting.start()).unwrap_json();
-    assert_eq!(start, 0);
+    let start: U64 = view!(vesting.start()).unwrap_json();
+    assert_eq!(start, U64::from(0));
 
 
     // verify recipient got all the amount
