@@ -1,10 +1,10 @@
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
 use near_sdk::{env, near_bindgen};
-use near_sdk::json_types::{U128, ValidAccountId};
+use near_sdk::json_types::{U128, U64, ValidAccountId};
 use near_sdk::{AccountId, Promise, PanicOnDefault, assert_one_yocto};
 use near_contract_standards::upgrade::Ownable;
 
-use crate::utils::{ext_fungible_token, ext_self, GAS_FOR_FT_TRANSFER, ONE_MONTH};
+use crate::utils::{ext_fungible_token, GAS_FOR_FT_TRANSFER, ONE_MONTH};
 mod utils;
 
 near_sdk::setup_alloc!();
@@ -29,10 +29,7 @@ impl Ownable for Contract {
         self.owner.clone()
     }
 
-    fn set_owner(&mut self, owner: AccountId) {
-        self.assert_owner();
-        self.owner = owner;
-    }
+    fn set_owner(&mut self, _owner: AccountId) {}
 }
 
 /* 
@@ -92,16 +89,16 @@ impl Contract {
         self.amount_claimed.into()
     }
 
-    pub fn cliff(&self) -> u64 {
-        self.cliff
+    pub fn cliff(&self) -> U64 {
+        self.cliff.into()
     }
 
-    pub fn start(&self) -> u64 {
-        self.start
+    pub fn start(&self) -> U64 {
+        self.start.into()
     }
 
-    pub fn duration(&self) -> u64 {
-        self.duration
+    pub fn duration(&self) -> U64 {
+        self.duration.into()
     }
 
     pub fn revocable(&self) -> bool {
@@ -109,7 +106,7 @@ impl Contract {
     }
 
     pub fn claim_vested(&mut self) -> Promise {
-        assert!(env::predecessor_account_id() == self.recipient(), "ERR_CALLER_NOT_RECIPIENT");
+        assert_eq!(env::predecessor_account_id(), self.recipient(), "ERR_CALLER_NOT_RECIPIENT");
         assert!(self.is_active, "ERR_VESTING_CONTRACT_NOT_ACTIVE");
         let releasable = self.internal_releasable_amount();
         assert!(releasable > 0, "ERR_NO_VESTED_AMOUNT_ARE_DUE");
@@ -130,12 +127,15 @@ impl Contract {
         self.internal_releasable_amount().into()
     }
 
-    #[private]
-    pub fn internal_releasable_amount(&self) -> u128 {
-        self.calculate_amount_vested().checked_sub(self.amount_claimed).expect("ERR_INTEGER_OVERFLOW")
+    pub fn calculate_amount_vested(&self) -> U128 {
+        self.internal_calculate_amount_vested().into()
     }
 
-    pub fn calculate_amount_vested(&self) -> u128{
+    fn internal_releasable_amount(&self) -> u128 {
+        self.internal_calculate_amount_vested().checked_sub(self.amount_claimed).expect("ERR_INTEGER_OVERFLOW")
+    }
+
+    fn internal_calculate_amount_vested(&self) -> u128{
         if env::block_timestamp() < self.cliff {
             return 0;
         }
@@ -153,10 +153,10 @@ impl Contract {
     }
 
     #[payable]
-    pub fn revoke(&mut self, recipient: ValidAccountId) -> u128 {
+    pub fn revoke(&mut self, recipient: ValidAccountId) -> U128 {
         self.assert_owner();
         assert_one_yocto();
-        assert!(self.revocable == true, "ERR_GRANT_NOT_REVOCABLE");
+        assert!(self.revocable, "ERR_GRANT_NOT_REVOCABLE");
         assert!(self.is_active, "ERR_VESTING_CONTRACT_NOT_ACTIVE");
 
         let releasable: u128 = self.internal_releasable_amount();
@@ -189,7 +189,7 @@ impl Contract {
             GAS_FOR_FT_TRANSFER
         );
 
-        return amount_not_vested;
+        return amount_not_vested.into();
     }
 }
 
@@ -200,9 +200,9 @@ mod tests {
     use near_sdk::MockedBlockchain;
     use near_sdk::{testing_env};
 
-    const ONE_PARAS_TOKEN: U128 = U128(1_000_000_000_000_000_000_000_000);
-    const TEN_PARAS_TOKEN: U128 = U128(10_000_000_000_000_000_000_000_000);
-    const TEN_MILLION_PARAS_TOKEN: U128 = U128(10_000_000_000_000_000_000_000_000_000_000);
+    const _ONE_PARAS_TOKEN: U128 = U128(1_000_000_000_000_000_000_000_000);
+    const _TEN_PARAS_TOKEN: U128 = U128(10_000_000_000_000_000_000_000_000);
+    const _TEN_MILLION_PARAS_TOKEN: U128 = U128(10_000_000_000_000_000_000_000_000_000_000);
     const FIVE_HUNDRED_THOUSAND_PARAS_TOKEN: U128 = U128(500_000_000_000_000_000_000_000_000_000);
     const TOTAL_AMOUNT: U128 = FIVE_HUNDRED_THOUSAND_PARAS_TOKEN;
 
@@ -241,9 +241,9 @@ mod tests {
         assert_eq!(contract.token(), accounts(2).to_string());
         assert_eq!(contract.amount(), TOTAL_AMOUNT);
         assert_eq!(contract.amount_claimed(), U128(0));
-        assert_eq!(contract.start(), JUNE_1_2021);
-        assert_eq!(contract.cliff(), JUNE_1_2021 + SIX_MONTHS);
-        assert_eq!(contract.duration(), TWO_YEARS);
+        assert_eq!(contract.start(), U64::from(JUNE_1_2021));
+        assert_eq!(contract.cliff(), U64::from(JUNE_1_2021 + SIX_MONTHS));
+        assert_eq!(contract.duration(), U64::from(TWO_YEARS));
         assert_eq!(contract.revocable(), false);
         assert_eq!(contract.is_active, true);
     }
@@ -257,7 +257,7 @@ mod tests {
             .build()
         );
         let amount_vested = contract.calculate_amount_vested();
-        assert_eq!(amount_vested, 0);
+        assert_eq!(amount_vested, U128::from(0));
 
         // after start before cliff ONE DAY
         testing_env!(context
@@ -266,7 +266,7 @@ mod tests {
             .build()
         );
         let amount_vested = contract.calculate_amount_vested();
-        assert_eq!(amount_vested, 0);
+        assert_eq!(amount_vested, U128::from(0));
 
         // after start before cliff ONE MONTH
         testing_env!(context
@@ -275,7 +275,7 @@ mod tests {
             .build()
         );
         let amount_vested = contract.calculate_amount_vested();
-        assert_eq!(amount_vested, 0);
+        assert_eq!(amount_vested, U128::from(0));
 
         // after cliff after ONE_DAY*29
         // month -> 0
@@ -285,7 +285,7 @@ mod tests {
             .build()
         );
         let amount_vested = contract.calculate_amount_vested();
-        assert_eq!(amount_vested, 0);
+        assert_eq!(amount_vested, U128::from(0));
 
         // after cliff after ONE MONTH
         // (FIVE_HUNDRED_THOUSAND_PARAS / (contract.duration / ONE_MONTH)) == 20833333333333333333333333333 == 20833.333333333332 PARAS/month
@@ -295,7 +295,7 @@ mod tests {
             .build()
         );
         let amount_vested = contract.calculate_amount_vested();
-        assert_eq!(amount_vested, (u128::from(TOTAL_AMOUNT) / (contract.duration as u128 / ONE_MONTH as u128)));
+        assert_eq!(amount_vested, U128::from(u128::from(TOTAL_AMOUNT) / (contract.duration as u128 / ONE_MONTH as u128)));
 
         // after cliff after ONE MONTH + 29 Days
         // (FIVE_HUNDRED_THOUSAND_PARAS / (contract.duration / ONE_MONTH)) == 20833333333333333333333333333 == 20833.333333333332 PARAS/month
@@ -305,7 +305,7 @@ mod tests {
             .build()
         );
         let amount_vested = contract.calculate_amount_vested();
-        assert_eq!(amount_vested, (u128::from(TOTAL_AMOUNT) / (contract.duration as u128 / ONE_MONTH as u128)));
+        assert_eq!(amount_vested, U128::from(u128::from(TOTAL_AMOUNT) / (contract.duration as u128 / ONE_MONTH as u128)));
 
         // after cliff after duration (vesting over)
         testing_env!(context
@@ -314,7 +314,7 @@ mod tests {
             .build()
         );
         let amount_vested = contract.calculate_amount_vested();
-        assert_eq!(amount_vested, u128::from(TOTAL_AMOUNT));
+        assert_eq!(amount_vested, TOTAL_AMOUNT);
 
     }
 
@@ -362,7 +362,7 @@ mod tests {
         );
 
         let amount_vested = contract.calculate_amount_vested();
-        assert_eq!(amount_vested, u128::from(TOTAL_AMOUNT));
+        assert_eq!(amount_vested, TOTAL_AMOUNT);
 
         let releasable_amount = contract.internal_releasable_amount();
         assert_eq!(releasable_amount, u128::from(TOTAL_AMOUNT) - 2*(u128::from(TOTAL_AMOUNT) / (contract.duration / ONE_MONTH) as u128));
@@ -401,7 +401,7 @@ mod tests {
         let releasable_amount = contract.internal_releasable_amount();
         // revoke
         let amount_not_vested = contract.revoke(accounts(1));
-        assert_eq!(amount_not_vested, u128::from(TOTAL_AMOUNT) - u128::from(current_amount_claimed) - u128::from(releasable_amount));
+        assert_eq!(amount_not_vested, U128::from(u128::from(TOTAL_AMOUNT) - u128::from(current_amount_claimed) - u128::from(releasable_amount)));
 
         assert_eq!(contract.is_active, false);
         assert_eq!(contract.recipient(), accounts(1).to_string());
