@@ -147,7 +147,7 @@ fn simulate_revoke() {
 
     let outcome = call!(
         root,
-        vesting.revoke(root.valid_account_id()),
+        vesting.revoke(),
         deposit = 1
     );
 

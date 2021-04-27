@@ -2,7 +2,6 @@ use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
 use near_sdk::{env, near_bindgen};
 use near_sdk::json_types::{U128, U64, ValidAccountId};
 use near_sdk::{AccountId, Promise, PanicOnDefault, assert_one_yocto};
-use near_contract_standards::upgrade::Ownable;
 
 use crate::utils::{ext_fungible_token, GAS_FOR_FT_TRANSFER, ONE_MONTH};
 mod utils;
@@ -24,14 +23,6 @@ pub struct Contract {
     is_active: bool,
 }
 
-impl Ownable for Contract {
-    fn get_owner(&self) -> AccountId {
-        self.owner.clone()
-    }
-
-    fn set_owner(&mut self, _owner: AccountId) {}
-}
-
 /* 
     Implementation of vesting contract
 
@@ -49,24 +40,23 @@ impl Contract {
         recipient : ValidAccountId,
         token: ValidAccountId,
         amount: U128,
-        start: u64,
-        duration: u64,
-        cliff: u64,
+        start: U64,
+        duration: U64,
+        cliff_duration: U64,
         revocable: bool,
     ) -> Self {
-        assert!(!env::state_exists(), "ERR_CONTRACT_HAS_INITIALIZED");
-        assert!(cliff < duration, "ERR_CLIFF_IS_HIGHER_THAN_DURATION");
-        assert!(duration > 0, "ERR_DURATION_IS_LESS_THAN_ZERO");
-        assert!((start.checked_add(duration.into()).expect("ERR_INTEGER_OVERFLOW")) > env::block_timestamp().into(), "ERR_START_AND_DURATION_IS_IN_THE_PAST");
+        assert!(cliff_duration.0 < duration.0, "ERR_CLIFF_IS_HIGHER_THAN_DURATION");
+        assert!(duration.0 > 0, "ERR_DURATION_IS_LESS_THAN_ZERO");
+        assert!((start.0.checked_add(duration.into()).expect("ERR_INTEGER_OVERFLOW")) > env::block_timestamp().into(), "ERR_START_AND_DURATION_IS_IN_THE_PAST");
         let this = Self {
             owner: owner.into(),
             recipient: recipient.into(),
             token: token.into(),
             amount: amount.into(),
             amount_claimed: 0,
-            start: start,
-            duration: duration,
-            cliff: start.checked_add(cliff.into()).expect("ERR_INTEGER_OVERFLOW"),
+            start: start.0,
+            duration: duration.0,
+            cliff: start.0.checked_add(cliff_duration.into()).expect("ERR_INTEGER_OVERFLOW"),
             revocable: revocable,
             is_active: true,
         };
@@ -75,6 +65,10 @@ impl Contract {
 
     pub fn recipient(&self) -> AccountId {
         self.recipient.clone()
+    }
+
+    pub fn owner(&self) -> AccountId {
+        self.owner.clone()
     }
 
     pub fn amount(&self) -> U128 {
@@ -136,11 +130,12 @@ impl Contract {
     }
 
     fn internal_calculate_amount_vested(&self) -> u128{
-        if env::block_timestamp() < self.cliff {
+        let block_timestamp = env::block_timestamp();
+        if block_timestamp < self.cliff {
             return 0;
         }
 
-        let elapsed_time = env::block_timestamp().checked_sub(self.cliff).expect("ERR_INTEGER_OVERFLOW");
+        let elapsed_time = block_timestamp - self.cliff;
 
         if elapsed_time >= self.duration {
             let vested_amount = self.amount;
@@ -153,8 +148,8 @@ impl Contract {
     }
 
     #[payable]
-    pub fn revoke(&mut self, recipient: ValidAccountId) -> U128 {
-        self.assert_owner();
+    pub fn revoke(&mut self) -> U128 {
+        assert_eq!(self.owner(), env::predecessor_account_id(), "ERR_NOT_OWNER");
         assert_one_yocto();
         assert!(self.revocable, "ERR_GRANT_NOT_REVOCABLE");
         assert!(self.is_active, "ERR_VESTING_CONTRACT_NOT_ACTIVE");
@@ -163,7 +158,6 @@ impl Contract {
         let amount_not_vested: u128 = self.amount.checked_sub(self.amount_claimed).expect("Integer underflow").checked_sub(releasable).expect("Integer underflow");
 
         self.is_active = false;
-        self.recipient = self.owner.clone();
         self.amount = 0;
         self.start = 0;
         self.duration = 0;
@@ -181,7 +175,7 @@ impl Contract {
 
         // transfer leftover to recipient specified
         ext_fungible_token::ft_transfer(
-            recipient.into(),
+            self.owner(),
             amount_not_vested.into(),
             None,
             &self.token,
@@ -225,7 +219,7 @@ mod tests {
     fn setup_contract() -> (VMContextBuilder, Contract) {
         let mut context = VMContextBuilder::new();
         testing_env!(context.predecessor_account_id(accounts(0)).build());
-        let contract = Contract::new(accounts(1).into(), accounts(3).into(), accounts(2).into(), TOTAL_AMOUNT, JUNE_1_2021, TWO_YEARS, SIX_MONTHS, true);
+        let contract = Contract::new(accounts(1).into(), accounts(3).into(), accounts(2).into(), TOTAL_AMOUNT, U64::from(JUNE_1_2021), U64::from(TWO_YEARS), U64::from(SIX_MONTHS), true);
         (context, contract)
     }
 
@@ -234,9 +228,9 @@ mod tests {
     fn test_new() {
         let mut context = get_context(accounts(1));
         testing_env!(context.build());
-        let contract = Contract::new(accounts(1).into(), accounts(3).into(), accounts(2).into(), TOTAL_AMOUNT, JUNE_1_2021, TWO_YEARS, SIX_MONTHS, false);
+        let contract = Contract::new(accounts(1).into(), accounts(3).into(), accounts(2).into(), TOTAL_AMOUNT, U64::from(JUNE_1_2021), U64::from(TWO_YEARS), U64::from(SIX_MONTHS), false);
         testing_env!(context.is_view(true).build());
-        assert_eq!(contract.get_owner(), accounts(1).to_string());
+        assert_eq!(contract.owner(), accounts(1).to_string());
         assert_eq!(contract.recipient(), accounts(3).to_string());
         assert_eq!(contract.token(), accounts(2).to_string());
         assert_eq!(contract.amount(), TOTAL_AMOUNT);
@@ -400,11 +394,11 @@ mod tests {
         let current_amount_claimed = contract.amount_claimed();
         let releasable_amount = contract.internal_releasable_amount();
         // revoke
-        let amount_not_vested = contract.revoke(accounts(1));
+        let amount_not_vested = contract.revoke();
         assert_eq!(amount_not_vested, U128::from(u128::from(TOTAL_AMOUNT) - u128::from(current_amount_claimed) - u128::from(releasable_amount)));
 
         assert_eq!(contract.is_active, false);
-        assert_eq!(contract.recipient(), accounts(1).to_string());
+        // assert_eq!(contract.recipient(), accounts(1).to_string());
         assert_eq!(contract.amount, 0);
         assert_eq!(contract.start, 0);
         assert_eq!(contract.duration, 0);
