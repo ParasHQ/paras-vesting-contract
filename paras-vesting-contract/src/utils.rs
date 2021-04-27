@@ -2,7 +2,7 @@ use near_sdk::{ext_contract, Gas};
 use near_sdk::json_types::{U128};
 
 pub const GAS_FOR_FT_TRANSFER: Gas = 10_000_000_000_000;
-pub const ONE_MONTH: u64 = 2629746000000000; // 30.436875*24*60*60*10**9
+pub const ONE_MONTH: u64 = 3600000000000; // 60*60*10**9
 //pub const NANO_SECONDS_PER_MONTH: u64 = 2628000_000_000_000;
 
 #[ext_contract(ext_fungible_token)]
