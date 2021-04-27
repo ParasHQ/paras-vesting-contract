@@ -1,5 +1,5 @@
 use paras_vesting_contract::ContractContract as VestingContract;
-use near_sdk::json_types::U128;
+use near_sdk::json_types::{U128};
 use near_sdk::serde_json::json;
 use near_sdk_sim::{
     deploy, init_simulator, to_yocto, ContractAccount, UserAccount, DEFAULT_GAS, STORAGE_AMOUNT,
@@ -13,7 +13,7 @@ near_sdk_sim::lazy_static_include::lazy_static_include_bytes! {
 
 pub const FT_ID: &str = "ft";
 pub const VESTING_ID: &str = "vesting";
-pub const ONE_MONTH:u64 = 2629746000000000; // 30.436875*24*60*60*10**9
+pub const ONE_MONTH: u64 = 2629746000000000; // 30.436875*24*60*60*10**9
 pub const TWO_YEARS: u64 = ONE_MONTH * 12 * 2;
 pub const JUNE_1_2021: u64 = 1622505600000000000; // Tuesday, June 1, 2021 12:00:00 AM GMT
 //const ONE_DAY:u64 = 86400000000000;
@@ -78,9 +78,9 @@ pub fn init() -> (UserAccount, UserAccount, ContractAccount<VestingContract>, Us
             alice.valid_account_id(),
             ft.valid_account_id(),
             U128::from(ptoy(10_000_000)),
-            JUNE_1_2021, // start
-            TWO_YEARS, // duration
-            SIX_MONTHS, // cliff
+            JUNE_1_2021.into(), // start
+            TWO_YEARS.into(), // duration
+            SIX_MONTHS.into(), // cliff
             true// revocable
         )
     );
