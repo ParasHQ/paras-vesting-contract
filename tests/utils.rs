@@ -18,10 +18,15 @@ pub const TWO_YEARS: u64 = ONE_MONTH * 12 * 2;
 pub const JUNE_1_2021: u64 = 1622505600000000000; // Tuesday, June 1, 2021 12:00:00 AM GMT
 //const ONE_DAY:u64 = 86400000000000;
 pub const SIX_MONTHS: u64 = ONE_MONTH * 6;
+pub const ONE_MILLION_COIN: u128 = 1_000_000_000_000_000_000_000_000_000_000;
 
 /// PARAS to yoctoPARAS
 pub fn ptoy(paras_amount: u128) -> u128 {
     paras_amount * 10u128.pow(24)
+}
+
+pub fn ytop(paras_amount: u128) -> u128 {
+    paras_amount / 10u128.pow(24)
 }
 
 pub fn register_user(user: &near_sdk_sim::UserAccount) {
@@ -53,7 +58,7 @@ pub fn init() -> (UserAccount, UserAccount, ContractAccount<VestingContract>, Us
         "new_default_meta",
         &json!({
             "owner_id": root.valid_account_id(),
-            "total_supply": U128::from(ptoy(100_000_000)),
+            "total_supply": U128::from(ONE_MILLION_COIN * 100),
         })
         .to_string()
         .into_bytes(),
@@ -77,7 +82,7 @@ pub fn init() -> (UserAccount, UserAccount, ContractAccount<VestingContract>, Us
             root.valid_account_id(),
             alice.valid_account_id(),
             ft.valid_account_id(),
-            U128::from(ptoy(10_000_000)),
+            U128::from(ONE_MILLION_COIN),
             JUNE_1_2021.into(), // start
             TWO_YEARS.into(), // duration
             SIX_MONTHS.into(), // cliff

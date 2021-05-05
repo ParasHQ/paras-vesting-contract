@@ -6,7 +6,7 @@ edition = "2018"
 
 [dev-dependencies]
 near-sdk = "=3.1.0"
-near-sdk-sim = "=3.1.0"
+near-sdk-sim = "=3.2.0"
 paras-vesting-contract = { path = "./paras-vesting-contract" }
 chrono = "0.4"
 

@@ -7,7 +7,7 @@ use chrono::{TimeZone, Utc};
 
 
 // use utils::{init as init, register_user};
-use crate::utils::{init, ptoy, SIX_MONTHS, TWO_YEARS, JUNE_1_2021};
+use crate::utils::{init, ptoy, ytop, SIX_MONTHS, TWO_YEARS, JUNE_1_2021, ONE_MILLION_COIN};
 mod utils;
 
 #[test]
@@ -57,7 +57,7 @@ fn simulate_vesting_init() {
 
     assert_eq!(recipient, alice.account_id);
     assert_eq!(token, ft.account_id);
-    assert_eq!(amount, U128::from(ptoy(10_000_000)));
+    assert_eq!(amount, U128::from(ONE_MILLION_COIN));
     assert_eq!(amount_claimed, U128::from(0));
     assert_eq!(cliff, JUNE_1_2021 + SIX_MONTHS);
     assert_eq!(start, JUNE_1_2021);
@@ -65,14 +65,14 @@ fn simulate_vesting_init() {
 
 }
 
-fn send_amount_to_vesting(ft: &UserAccount, root: &UserAccount, vesting: &UserAccount) {
+fn send_amount(ft: &UserAccount, root: &UserAccount, vesting: &UserAccount) {
     // send amount from ft owner (root) to vesting contract
     root.call(
         ft.account_id(), 
         "ft_transfer",
         &json!({
             "receiver_id": vesting.account_id(),
-            "amount": U128::from(ptoy(10_000_000))
+            "amount": U128::from(ONE_MILLION_COIN)
         }).to_string().into_bytes(),
         DEFAULT_GAS,
         1,
@@ -88,12 +88,25 @@ fn send_amount_to_vesting(ft: &UserAccount, root: &UserAccount, vesting: &UserAc
         }).to_string().into_bytes(),
     ).unwrap_json();
 
-    assert_eq!(vesting_balance, U128::from(ptoy(10_000_000)))
+    assert_eq!(vesting_balance, U128::from(ONE_MILLION_COIN));
+}
+
+fn get_balance(user: &UserAccount, ft: AccountId) -> U128 {
+    let balance: U128 = user.view(
+        ft,
+        "ft_balance_of",
+        &json!({
+            "account_id": user.account_id(),
+        }).to_string().into_bytes()
+    )
+    .unwrap_json();
+
+    balance
 }
 #[test]
 fn simulate_claim_vested() {
     let (root, ft, vesting, alice) = init();
-    send_amount_to_vesting(&ft, &root, &vesting.user_account);
+    send_amount(&ft, &root, &vesting.user_account);
 
     let outcome = call!(
         alice,
@@ -111,39 +124,46 @@ fn simulate_claim_vested() {
     } else {
         unreachable!();
     }
+
+    // claim right after cliff is done
+    root.borrow_runtime_mut().cur_block.block_timestamp = JUNE_1_2021 + SIX_MONTHS + 10;
+
+    let outcome = call!(
+        alice,
+        vesting.claim_vested(),
+        deposit = 0
+    );
+    assert_eq!(outcome.promise_errors().len(), 0);
+    let alice_balance: u128 = get_balance(&alice, ft.account_id()).into();
+    //1000000*6/24
+    assert_eq!(ytop(alice_balance), 1_000_000*6/24);
+
+    // claim after vesting is over
+    root.borrow_runtime_mut().cur_block.block_timestamp = JUNE_1_2021 + TWO_YEARS;
+    call!(
+        alice,
+        vesting.claim_vested(),
+        deposit = 0
+    );
+    let alice_balance: u128 = get_balance(&alice, ft.account_id()).into();
+    assert_eq!(ytop(alice_balance), 1_000_000);
+
 }
+
+/*
+you can use `.borrow_runtime_mut()` on any UserAccount object
+ in sim tests and then modify `cur_block.block_timestamp`
+ */
 
 #[test]
 fn simulate_revoke() {
     let (root, ft, vesting, alice) = init();
-    send_amount_to_vesting(&ft, &root, &vesting.user_account);
+    send_amount(&ft, &root, &vesting.user_account);
 
-    let alice_balance_before: U128 = root.view(
-        ft.account_id(),
-        "ft_balance_of",
-        &json!({
-            "account_id": alice.account_id(),
-        }).to_string().into_bytes()
-    )
-    .unwrap_json();
+    root.borrow_runtime_mut().cur_block.block_timestamp = JUNE_1_2021 + SIX_MONTHS;
 
-    let root_balance_before: U128 = root.view(
-        ft.account_id(),
-        "ft_balance_of",
-        &json!({
-            "account_id": root.account_id(),
-        }).to_string().into_bytes()
-    )
-    .unwrap_json();
-
-    let vesting_balance_before: U128 = root.view(
-        ft.account_id(),
-        "ft_balance_of",
-        &json!({
-            "account_id": vesting.account_id(),
-        }).to_string().into_bytes()
-    )
-    .unwrap_json();
+    let alice_balance_before: U128 = get_balance(&alice, ft.account_id());
+    let root_balance_before: U128 = get_balance(&root, ft.account_id());
 
     let outcome = call!(
         root,
@@ -151,65 +171,38 @@ fn simulate_revoke() {
         deposit = 1
     );
 
-    // Error because of amount = 0 for original recipient
-    assert_eq!(outcome.promise_errors().len(), 1);
-
     // first outcome would be returned from vesting contract
+    // first outcome is the amount for owner
     let first_outcome = outcome.promise_results().remove(1).unwrap();
     println!("[VESTING REVOKE] Tokens burnt: {} NEAR", first_outcome.tokens_burnt() as f64 / 10u128.pow(24) as f64);
-    
+
+    let owner_get_coin: u128 = ONE_MILLION_COIN*18/24;
+    let alice_get_coin: u128 = ONE_MILLION_COIN*6/24;
+
     assert!(format!("{:?}", first_outcome.status())
-        .contains(&ptoy(10_000_000).to_string()));
+        .contains(&owner_get_coin.to_string()));
 
-    // Expect error : The amount should be a positive number
+    // ft_transfer to alice account
     let second_outcome = outcome.promise_results().remove(2).unwrap();
-    assert!(format!("{:?}", second_outcome.status())
-        .contains("The amount should be a positive number"));
+    assert!(format!("{:?}", second_outcome.logs()[0])
+        .contains(&alice_get_coin.to_string()));
 
-    // ft_transfer to root account
+    // ft_transfer to alice account
     let third_outcome = outcome.promise_results().remove(3).unwrap();
     assert!(format!("{:?}", third_outcome.logs()[0])
-        .contains("Transfer 10000000000000000000000000000000 from vesting to root"));
-
+        .contains(&owner_get_coin.to_string()));
 
     // verify if account is not active
     let start: U64 = view!(vesting.start()).unwrap_json();
     assert_eq!(start, U64::from(0));
 
-
     // verify recipient got all the amount
-    let alice_balance_after: U128 = root.view(
-        ft.account_id(),
-        "ft_balance_of",
-        &json!({
-            "account_id": alice.account_id(),
-        }).to_string().into_bytes()
-    )
-    .unwrap_json();
+    let alice_balance_after: U128 = get_balance(&alice, ft.account_id());
+    let root_balance_after: U128 = get_balance(&root, ft.account_id());
+    let vesting_balance_after: U128 = get_balance(&vesting.user_account, ft.account_id());
 
-    let root_balance_after: U128 = root.view(
-        ft.account_id(),
-        "ft_balance_of",
-        &json!({
-            "account_id": root.account_id(),
-        }).to_string().into_bytes()
-    )
-    .unwrap_json();
-
-    let vesting_balance_after: U128 = root.view(
-        ft.account_id(),
-        "ft_balance_of",
-        &json!({
-            "account_id": vesting.account_id(),
-        }).to_string().into_bytes()
-    )
-    .unwrap_json();
-
-    let root_balance_before: u128 = root_balance_before.into();
-    let vesting_balance_before: u128 = vesting_balance_before.into();
-
-    assert_eq!(alice_balance_before, alice_balance_after);
-    assert_eq!(root_balance_after, U128::from(root_balance_before + ptoy(10_000_000)));
-    assert_eq!(vesting_balance_after, U128::from(vesting_balance_before - ptoy(10_000_000)));
+    assert_eq!(alice_balance_after, U128::from(alice_balance_before.0 + ONE_MILLION_COIN * 6 / 24));
+    assert_eq!(root_balance_after, U128::from(root_balance_before.0 + ONE_MILLION_COIN * 18/24));
+    assert_eq!(vesting_balance_after, U128::from(0));
  
 }
