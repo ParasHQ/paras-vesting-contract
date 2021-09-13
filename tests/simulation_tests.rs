@@ -7,12 +7,14 @@ use chrono::{TimeZone, Utc};
 
 
 // use utils::{init as init, register_user};
-use crate::utils::{init, ptoy, ytop, SIX_MONTHS, TWO_YEARS, JUNE_1_2021, ONE_MILLION_COIN};
+use crate::utils::{
+    init, ptoy, ytop, SIX_MONTHS, TWO_YEARS, JUNE_1_2021, ONE_MILLION_COIN, ONE_MONTH, OCTOBER_1_2021
+};
 mod utils;
 
 #[test]
 fn simulate_total_supply() {
-    let (_, ft, _, _) = init();
+    let (_, ft, _, _) = init(false);
 
     // let total_supply: U128 = view!(ft.ft_total_supply()).unwrap_json();
     let total_supply: U128 = ft.view(ft.account_id(), "ft_total_supply", b"").unwrap_json();
@@ -22,7 +24,7 @@ fn simulate_total_supply() {
 
 #[test]
 fn simulate_vesting_init() {
-    let (_, ft, vesting, alice) = init();
+    let (_, ft, vesting, alice) = init(false);
 
     let recipient: AccountId = view!(vesting.recipient()).unwrap_json();
     println!("[VESTING] Recipient: {}", recipient.to_string());
@@ -105,7 +107,7 @@ fn get_balance(user: &UserAccount, ft: AccountId) -> U128 {
 }
 #[test]
 fn simulate_claim_vested() {
-    let (root, ft, vesting, alice) = init();
+    let (root, ft, vesting, alice) = init(false);
     send_amount(&ft, &root, &vesting.user_account);
 
     let outcome = call!(
@@ -147,7 +149,51 @@ fn simulate_claim_vested() {
     );
     let alice_balance: u128 = get_balance(&alice, ft.account_id()).into();
     assert_eq!(ytop(alice_balance), 1_000_000);
+}
 
+#[test]
+fn simulate_claim_vested_one_month() {
+    let (root, ft, vesting, alice) = init(true);
+    send_amount(&ft, &root, &vesting.user_account);
+
+    let outcome = call!(
+        alice,
+        vesting.claim_vested(),
+        deposit = 0
+    );
+
+    // vesting is not yet begun
+    assert_eq!(outcome.promise_errors().len(), 1);
+
+    if let ExecutionStatus::Failure(execution_error) =
+    &outcome.promise_errors().remove(0).unwrap().outcome().status
+    {
+        assert!(execution_error.to_string().contains("ERR_NO_VESTED_AMOUNT_ARE_DUE"));
+    } else {
+        unreachable!();
+    }
+
+    // claim right after cliff is done
+    root.borrow_runtime_mut().cur_block.block_timestamp = OCTOBER_1_2021;
+
+    let outcome = call!(
+        alice,
+        vesting.claim_vested(),
+        deposit = 0
+    );
+    assert_eq!(outcome.promise_errors().len(), 0);
+    let alice_balance: u128 = get_balance(&alice, ft.account_id()).into();
+    assert_eq!(ytop(alice_balance), 1_000_000*1/24);
+
+    // claim after vesting is over
+    root.borrow_runtime_mut().cur_block.block_timestamp = OCTOBER_1_2021 + TWO_YEARS;
+    call!(
+        alice,
+        vesting.claim_vested(),
+        deposit = 0
+    );
+    let alice_balance: u128 = get_balance(&alice, ft.account_id()).into();
+    assert_eq!(ytop(alice_balance), 1_000_000);
 }
 
 /*
@@ -157,7 +203,7 @@ you can use `.borrow_runtime_mut()` on any UserAccount object
 
 #[test]
 fn simulate_revoke() {
-    let (root, ft, vesting, alice) = init();
+    let (root, ft, vesting, alice) = init(false);
     send_amount(&ft, &root, &vesting.user_account);
 
     root.borrow_runtime_mut().cur_block.block_timestamp = JUNE_1_2021 + SIX_MONTHS;
