@@ -99,7 +99,9 @@ impl Contract {
         self.revocable
     }
 
+    #[payable]
     pub fn claim_vested(&mut self) -> Promise {
+        assert_one_yocto();
         assert_eq!(env::predecessor_account_id(), self.recipient(), "ERR_CALLER_NOT_RECIPIENT");
         assert!(self.is_active, "ERR_VESTING_CONTRACT_NOT_ACTIVE");
         let releasable = self.internal_releasable_amount();
