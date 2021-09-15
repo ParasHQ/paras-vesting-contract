@@ -113,7 +113,7 @@ fn simulate_claim_vested() {
     let outcome = call!(
         alice,
         vesting.claim_vested(),
-        deposit = 0
+        deposit = 1
     );
 
     // vesting is not yet begun
@@ -133,7 +133,7 @@ fn simulate_claim_vested() {
     let outcome = call!(
         alice,
         vesting.claim_vested(),
-        deposit = 0
+        deposit = 1
     );
     assert_eq!(outcome.promise_errors().len(), 0);
     let alice_balance: u128 = get_balance(&alice, ft.account_id()).into();
@@ -145,7 +145,7 @@ fn simulate_claim_vested() {
     call!(
         alice,
         vesting.claim_vested(),
-        deposit = 0
+        deposit = 1
     );
     let alice_balance: u128 = get_balance(&alice, ft.account_id()).into();
     assert_eq!(ytop(alice_balance), 1_000_000);
@@ -159,7 +159,7 @@ fn simulate_claim_vested_one_month() {
     let outcome = call!(
         alice,
         vesting.claim_vested(),
-        deposit = 0
+        deposit = 1
     );
 
     // vesting is not yet begun
@@ -179,7 +179,7 @@ fn simulate_claim_vested_one_month() {
     let outcome = call!(
         alice,
         vesting.claim_vested(),
-        deposit = 0
+        deposit = 1
     );
     assert_eq!(outcome.promise_errors().len(), 0);
     let alice_balance: u128 = get_balance(&alice, ft.account_id()).into();
@@ -190,7 +190,7 @@ fn simulate_claim_vested_one_month() {
     call!(
         alice,
         vesting.claim_vested(),
-        deposit = 0
+        deposit = 1
     );
     let alice_balance: u128 = get_balance(&alice, ft.account_id()).into();
     assert_eq!(ytop(alice_balance), 1_000_000);
