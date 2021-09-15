@@ -193,10 +193,10 @@ mod tests {
     use near_sdk::MockedBlockchain;
     use near_sdk::{testing_env};
 
-    const _ONE_PARAS_TOKEN: U128 = U128(1_000_000_000_000_000_000_000_000);
-    const _TEN_PARAS_TOKEN: U128 = U128(10_000_000_000_000_000_000_000_000);
-    const _TEN_MILLION_PARAS_TOKEN: U128 = U128(10_000_000_000_000_000_000_000_000_000_000);
-    const FIVE_HUNDRED_THOUSAND_PARAS_TOKEN: U128 = U128(500_000_000_000_000_000_000_000_000_000);
+    const _ONE_PARAS_TOKEN: U128 = U128(1 * 10u128.pow(18));
+    const _TEN_PARAS_TOKEN: U128 = U128(10 * 10u128.pow(18));
+    const _TEN_MILLION_PARAS_TOKEN: U128 = U128(10_000_000 * 10u128.pow(18));
+    const FIVE_HUNDRED_THOUSAND_PARAS_TOKEN: U128 = U128(500_000 * 10u128.pow(18));
     const TOTAL_AMOUNT: U128 = FIVE_HUNDRED_THOUSAND_PARAS_TOKEN;
 
     // IN NANO SECONDS
@@ -427,6 +427,4 @@ mod tests {
         );
         contract.claim_vested();
     }
-
-
 }

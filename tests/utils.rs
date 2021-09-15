@@ -1,5 +1,5 @@
 use paras_vesting_contract::ContractContract as VestingContract;
-use near_sdk::json_types::{U128};
+use near_sdk::json_types::{U128, U64};
 use near_sdk::serde_json::json;
 use near_sdk_sim::{
     deploy, init_simulator, to_yocto, ContractAccount, UserAccount, DEFAULT_GAS, STORAGE_AMOUNT,
@@ -16,17 +16,18 @@ pub const VESTING_ID: &str = "vesting";
 pub const ONE_MONTH: u64 = 2629746000000000; // 30.436875*24*60*60*10**9
 pub const TWO_YEARS: u64 = ONE_MONTH * 12 * 2;
 pub const JUNE_1_2021: u64 = 1622505600000000000; // Tuesday, June 1, 2021 12:00:00 AM GMT
+pub const OCTOBER_1_2021: u64 = 1633046400000000000;
 //const ONE_DAY:u64 = 86400000000000;
 pub const SIX_MONTHS: u64 = ONE_MONTH * 6;
-pub const ONE_MILLION_COIN: u128 = 1_000_000_000_000_000_000_000_000_000_000;
+pub const ONE_MILLION_COIN: u128 = 1_000_000 * 10u128.pow(18);
 
 /// PARAS to yoctoPARAS
 pub fn ptoy(paras_amount: u128) -> u128 {
-    paras_amount * 10u128.pow(24)
+    paras_amount * 10u128.pow(18)
 }
 
 pub fn ytop(paras_amount: u128) -> u128 {
-    paras_amount / 10u128.pow(24)
+    paras_amount / 10u128.pow(18)
 }
 
 pub fn register_user(user: &near_sdk_sim::UserAccount) {
@@ -44,7 +45,7 @@ pub fn register_user(user: &near_sdk_sim::UserAccount) {
     .assert_success();
 }
 
-pub fn init() -> (UserAccount, UserAccount, ContractAccount<VestingContract>, UserAccount) {
+pub fn init(is_one_month: bool) -> (UserAccount, UserAccount, ContractAccount<VestingContract>, UserAccount) {
     // Use `None` for default genesis configuration; more info below
     let root = init_simulator(None);
 
@@ -55,10 +56,9 @@ pub fn init() -> (UserAccount, UserAccount, ContractAccount<VestingContract>, Us
     );
     ft.call(
         FT_ID.into(), 
-        "new_default_meta",
+        "new_paras_meta",
         &json!({
             "owner_id": root.valid_account_id(),
-            "total_supply": U128::from(ONE_MILLION_COIN * 100),
         })
         .to_string()
         .into_bytes(),
@@ -73,22 +73,43 @@ pub fn init() -> (UserAccount, UserAccount, ContractAccount<VestingContract>, Us
     );
     register_user(&alice);
 
-    let vesting = deploy!(
-        contract: VestingContract,
-        contract_id: VESTING_ID,
-        bytes: &VESTING_WASM_BYTES,
-        signer_account: root,
-        init_method: new(
-            root.valid_account_id(),
-            alice.valid_account_id(),
-            ft.valid_account_id(),
-            U128::from(ONE_MILLION_COIN),
-            JUNE_1_2021.into(), // start
-            TWO_YEARS.into(), // duration
-            SIX_MONTHS.into(), // cliff
-            true// revocable
-        )
-    );
+    let vesting: ContractAccount<VestingContract>;
+
+    if is_one_month {
+        vesting = deploy!(
+            contract: VestingContract,
+            contract_id: VESTING_ID,
+            bytes: &VESTING_WASM_BYTES,
+            signer_account: root,
+            init_method: new(
+                root.valid_account_id(),
+                alice.valid_account_id(),
+                ft.valid_account_id(),
+                U128::from(ONE_MILLION_COIN),
+                (OCTOBER_1_2021 - ONE_MONTH).into(),
+                TWO_YEARS.into(), // duration
+                U64::from(0), // cliff
+                true// revocable
+                )
+        );
+    } else {
+        vesting = deploy!(
+            contract: VestingContract,
+            contract_id: VESTING_ID,
+            bytes: &VESTING_WASM_BYTES,
+            signer_account: root,
+            init_method: new(
+                root.valid_account_id(),
+                alice.valid_account_id(),
+                ft.valid_account_id(),
+                U128::from(ONE_MILLION_COIN),
+                JUNE_1_2021.into(), // start
+                TWO_YEARS.into(), // duration
+                SIX_MONTHS.into(), // cliff
+                true// revocable
+                )
+        );
+    }
 
     register_user(&vesting.user_account);
 

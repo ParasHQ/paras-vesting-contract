@@ -12,3 +12,5 @@ neardev
 
 # Dependencies
 node_modules
+
+Cargo.lock
