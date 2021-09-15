@@ -80,7 +80,7 @@ calculate_amount_vested()
 
 ### New 
 ```
-near call --networkId testnet --accountId alice.testnet contract_id new '{"owner":"alice.testnet.testnet","recipient":"bob.testnet","token":"ft.paras.testnet","amount":"500000000000000000000000000000","start":1622505600000000000,"duration":63072000000000000,"cliff":15552000000000000,"revocable":false}'
+near call dev-1631684538328-15645042144806 --accountId dev-1631684538328-15645042144806 new '{"owner":"dev-1631684538328-15645042144806", "recipient":"rng.testnet","token":"dev-1631277489384-75412609538902","amount":"1250000000000000000000000","start":"1629055854000000000", "duration":"31556952000000000", "cliff_duration":"0", "revocable":false}'
 ```
 
 NOTE: after calling new(), do ft_transfer of PARAS to vesting_contract\
@@ -92,7 +92,7 @@ NOTE: the recipient must register on PARAS FT contract to obtain tokens\
 claim_vested()
 ```
 
-### Revoke - Owner Only
+### Revoke - Owner Only (revocable == true)
 ```
 revoke({"recipient":"alice.testnet"})
 ```
