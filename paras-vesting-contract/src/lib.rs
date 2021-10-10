@@ -186,6 +186,12 @@ impl Contract {
 
         return amount_not_vested.into();
     }
+
+    pub fn change_recipient(&mut self, recipient: AccountId) {
+        assert_eq!(self.owner(), env::predecessor_account_id(), "ERR_NOT_OWNER");
+
+        self.recipient = recipient.into();
+    }
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -333,6 +339,12 @@ mod tests {
         assert_eq!(releasable_amount, TOTAL_AMOUNT.0 * 7 / 24);
 
         // claim
+        testing_env!(context
+            .predecessor_account_id(accounts(3))
+            .block_timestamp(contract.cliff + ONE_MONTH)
+            .attached_deposit(1)
+            .build()
+        );
         contract.claim_vested();
         assert_eq!(contract.amount_claimed, TOTAL_AMOUNT.0 * 7 / 24);
 
@@ -382,6 +394,12 @@ mod tests {
         assert_eq!(releasable_amount, TOTAL_AMOUNT.0 * 7 / 24);
 
         // claim
+        testing_env!(context
+            .predecessor_account_id(accounts(3))
+            .block_timestamp(contract.cliff + ONE_MONTH)
+            .attached_deposit(1)
+            .build()
+        );
         contract.claim_vested();
         assert_eq!(contract.amount_claimed, TOTAL_AMOUNT.0 * 7 / 24);
 
@@ -414,6 +432,7 @@ mod tests {
         testing_env!(context
             .predecessor_account_id(accounts(3))
             .block_timestamp(contract.cliff-1)
+            .attached_deposit(1)
             .build()
         );
         contract.claim_vested();
@@ -425,8 +444,22 @@ mod tests {
         testing_env!(context
             .predecessor_account_id(accounts(4))
             .block_timestamp(contract.cliff+contract.duration)
+            .attached_deposit(1)
             .build()
         );
         contract.claim_vested();
+    }
+
+    #[test]
+    fn test_change_recipient() {
+        let (mut context, mut contract) = setup_contract();
+        testing_env!(context
+            .predecessor_account_id(accounts(1))
+            .build()
+        );
+
+        contract.change_recipient("changed.near".to_string());
+
+        assert_eq!(contract.recipient(), "changed.near");
     }
 }
